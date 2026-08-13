@@ -16,7 +16,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-type IndexId = "sp500" | "nasdaq100" | "dow30";
+type IndexId = "sp500" | "sp1500" | "europe600" | "nasdaq100" | "dow30";
 type HistoryRange = "1M" | "YTD" | "1Y";
 type SortMode = "size" | "gainers" | "laggards" | "company";
 
@@ -31,7 +31,7 @@ type IndexSummary = {
 
 type Constituent = {
   symbol: string;
-  dataSymbol: string;
+  dataSymbol: string | null;
   name: string;
   sector: string;
   industry: string;
@@ -46,6 +46,8 @@ type IndexResponse = {
   index: IndexSummary;
   indexes: IndexSummary[];
   constituents: Constituent[];
+  membershipTotal: number;
+  membershipCoverage: string;
   requestedAt: string;
   sources: { membership: string; snapshot: string };
   error?: string;
@@ -72,6 +74,8 @@ type HistoryResponse = {
 
 const INDEX_CHOICES: IndexSummary[] = [
   { id: "sp500", name: "S&P 500", shortName: "S&P 500", symbol: "^GSPC", description: "U.S. large cap", weighting: "Float-adjusted market cap" },
+  { id: "sp1500", name: "S&P Composite 1500", shortName: "S&P 1500", symbol: "^SP1500", description: "Broad U.S. market", weighting: "Float-adjusted market cap" },
+  { id: "europe600", name: "STOXX Europe 600", shortName: "STOXX 600", symbol: "^STOXX", description: "Broad European market", weighting: "Free-float market cap" },
   { id: "nasdaq100", name: "Nasdaq-100", shortName: "Nasdaq 100", symbol: "^NDX", description: "Large non-financial", weighting: "Modified market cap" },
   { id: "dow30", name: "Dow Jones Industrial Average", shortName: "Dow 30", symbol: "^DJI", description: "U.S. blue chips", weighting: "Price weighted" },
 ];
@@ -134,7 +138,7 @@ function StockChart({ points }: { points: HistoryPoint[] }) {
   );
 }
 
-function DetailDrawer({ constituent, onClose, onOpenDataset }: { constituent: Constituent; onClose: () => void; onOpenDataset: (symbol: string) => void }) {
+function DetailDrawer({ constituent, onClose, onOpenDataset }: { constituent: Constituent & { dataSymbol: string }; onClose: () => void; onOpenDataset: (symbol: string) => void }) {
   const [range, setRange] = useState<HistoryRange>("1Y");
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -241,7 +245,7 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
   const [sector, setSector] = useState("All sectors");
   const [sort, setSort] = useState<SortMode>("size");
   const [visibleCount, setVisibleCount] = useState(50);
-  const [selected, setSelected] = useState<Constituent | null>(null);
+  const [selected, setSelected] = useState<(Constituent & { dataSymbol: string }) | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -268,7 +272,7 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
     setIndexId(nextIndex);
     setQuery("");
     setSector("All sectors");
-    setSort("size");
+    setSort(nextIndex === "europe600" ? "company" : "size");
     setVisibleCount(50);
     setSelected(null);
   }
@@ -301,6 +305,8 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
   }, [constituents, query, sector, sort]);
 
   const activeIndex = data?.index ?? INDEX_CHOICES.find((item) => item.id === indexId)!;
+  const hasTradableSymbols = indexId !== "europe600";
+  const membershipTotal = data?.membershipTotal ?? constituents.length;
   const displayed = filtered.slice(0, visibleCount);
   const asOf = data?.requestedAt ? new Date(data.requestedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
 
@@ -333,34 +339,37 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
             <h2>{activeIndex.name}</h2>
             <p>{activeIndex.description}</p>
           </div>
-          <div className="constituent-total"><strong>{constituents.length || "—"}</strong><span>constituents</span></div>
+          <div className="constituent-total"><strong>{membershipTotal || "—"}</strong><span>index members</span><small>{data?.membershipCoverage ?? "Current table"}</small></div>
         </header>
 
-        <div className="breadth-panel">
+        <div className={`breadth-panel ${hasTradableSymbols ? "" : "is-reference-only"}`}>
           <div className="breadth-summary">
-            <div><span>Market breadth</span><strong>{quoteCount ? `${breadth.toFixed(0)}% advancing` : "Awaiting snapshot"}</strong></div>
-            <div className="breadth-counts">
+            <div>
+              <span>{hasTradableSymbols ? "Market breadth" : "Public component coverage"}</span>
+              <strong>{hasTradableSymbols ? (quoteCount ? `${breadth.toFixed(0)}% advancing` : "Awaiting snapshot") : "Official top-component view"}</strong>
+            </div>
+            {hasTradableSymbols ? <div className="breadth-counts">
               <span className="is-up"><i />{advancing} up</span>
               <span className="is-down"><i />{declining} down</span>
               <span><i />{unchanged} flat</span>
-            </div>
+            </div> : <span className="official-count">10 of 600 publicly shown</span>}
           </div>
-          <div className="breadth-track" aria-label={`${advancing} advancing, ${declining} declining, ${unchanged} unchanged`}>
+          {hasTradableSymbols ? <div className="breadth-track" aria-label={`${advancing} advancing, ${declining} declining, ${unchanged} unchanged`}>
             <i className="is-up" style={{ width: `${breadth}%` }} />
             <i className="is-down" style={{ width: `${quoteCount ? (declining / quoteCount) * 100 : 0}%` }} />
-          </div>
+          </div> : null}
           <div className="index-metrics">
-            <div><span>Companies</span><strong>{constituents.length || "—"}</strong></div>
-            <div><span>Snapshot coverage</span><strong>{constituents.length ? `${Math.round((quoteCount / constituents.length) * 100)}%` : "—"}</strong></div>
-            <div><span>Combined market cap</span><strong>{marketCap(totalMarketCap || null)}</strong></div>
-            <div><span>Largest sector</span><strong>{largestSector ? largestSector[0] : "—"}</strong></div>
+            <div><span>Companies</span><strong>{membershipTotal || "—"}</strong></div>
+            <div><span>Snapshot coverage</span><strong>{hasTradableSymbols && constituents.length ? `${Math.round((quoteCount / constituents.length) * 100)}%` : data?.membershipCoverage ?? "—"}</strong></div>
+            <div><span>{hasTradableSymbols ? "Combined market cap" : "Component data"}</span><strong>{hasTradableSymbols ? marketCap(totalMarketCap || null) : "Company · sector · country"}</strong></div>
+            <div><span>{hasTradableSymbols ? "Largest sector" : "Top-component sector"}</span><strong>{largestSector ? largestSector[0] : "—"}</strong></div>
           </div>
         </div>
 
         <div className="constituent-toolbar">
           <div className="constituent-search">
             <Icon icon={Search01Icon} size={17} />
-            <input aria-label="Search constituents" onChange={(event) => { setQuery(event.target.value); setVisibleCount(50); }} placeholder="Search ticker, company, sector…" type="search" value={query} />
+            <input aria-label="Search constituents" onChange={(event) => { setQuery(event.target.value); setVisibleCount(50); }} placeholder={hasTradableSymbols ? "Search ticker, company, sector…" : "Search company, sector, country…"} type="search" value={query} />
             {query ? <button aria-label="Clear search" onClick={() => { setQuery(""); setVisibleCount(50); }} type="button"><Icon icon={Cancel01Icon} size={14} /></button> : <kbd>⌘K</kbd>}
           </div>
           <label className="filter-select">
@@ -374,16 +383,18 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
             <span className="sr-only">Sort constituents</span>
             <Icon icon={Sorting01Icon} size={15} />
             <select onChange={(event) => { setSort(event.target.value as SortMode); setVisibleCount(50); }} value={sort}>
-              <option value="size">Largest first</option>
-              <option value="gainers">Top gainers</option>
-              <option value="laggards">Top laggards</option>
+              {hasTradableSymbols ? <>
+                <option value="size">Largest first</option>
+                <option value="gainers">Top gainers</option>
+                <option value="laggards">Top laggards</option>
+              </> : null}
               <option value="company">Company A–Z</option>
             </select>
           </label>
         </div>
 
         <div className="constituent-table-wrap">
-          <table className="constituent-table">
+          {hasTradableSymbols ? <table className="constituent-table">
             <thead><tr><th>#</th><th>Company</th><th>Sector</th><th>Last</th><th>Today</th><th>Market cap</th><th>Relative size</th><th><span className="sr-only">Open details</span></th></tr></thead>
             <tbody>
               {displayed.map((item, index) => {
@@ -393,30 +404,44 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
                   <tr key={item.symbol}>
                     <td>{index + 1}</td>
                     <td>
-                      <button className="company-cell" onClick={() => setSelected(item)} type="button">
+                      {item.dataSymbol ? <button className="company-cell" onClick={() => setSelected(item as Constituent & { dataSymbol: string })} type="button">
                         <span className="ticker-avatar">{item.symbol.slice(0, 2)}</span>
                         <span><strong>{item.symbol}</strong><small>{item.name}</small></span>
-                      </button>
+                      </button> : null}
                     </td>
                     <td><span className="sector-chip">{item.sector || "Unclassified"}</span></td>
                     <td>{money(item.lastPrice)}</td>
                     <td><span className={item.changePercent == null ? "" : positive ? "positive-cell" : "negative-cell"}>{item.changePercent == null ? null : <Icon icon={positive ? ArrowUp01Icon : ArrowDown01Icon} size={12} />}{percent(item.changePercent)}</span></td>
                     <td>{marketCap(item.marketCap)}</td>
                     <td><span className="size-cell"><i><b style={{ width: `${Math.min(100, (share ?? 0) * 11)}%` }} /></i>{share == null ? "—" : `${share.toFixed(2)}%`}</span></td>
-                    <td><button className="row-open" onClick={() => setSelected(item)} aria-label={`Open ${item.name} details`} type="button"><Icon icon={ChartBreakoutCircleIcon} size={17} /></button></td>
+                    <td>{item.dataSymbol ? <button className="row-open" onClick={() => setSelected(item as Constituent & { dataSymbol: string })} aria-label={`Open ${item.name} details`} type="button"><Icon icon={ChartBreakoutCircleIcon} size={17} /></button> : null}</td>
                   </tr>
                 );
               })}
               {!loading && !displayed.length ? <tr><td className="no-rows" colSpan={8}><div className="empty-state"><Icon icon={Search01Icon} size={22} /><strong>No constituents found</strong><span>Try another ticker, company, or sector.</span></div></td></tr> : null}
             </tbody>
-          </table>
+          </table> : <table className="constituent-table is-reference-only">
+            <thead><tr><th>#</th><th>Company</th><th>Supersector</th><th>Country</th><th>STOXX reference</th></tr></thead>
+            <tbody>
+              {displayed.map((item, index) => (
+                <tr key={item.symbol}>
+                  <td>{index + 1}</td>
+                  <td><div className="company-cell is-static"><span className="ticker-avatar">{item.name.slice(0, 2).toUpperCase()}</span><span><strong>{item.name}</strong><small>Current top component</small></span></div></td>
+                  <td><span className="sector-chip">{item.sector || "Unclassified"}</span></td>
+                  <td>{item.industry || "—"}</td>
+                  <td><code className="stoxx-reference">{item.symbol.slice(3)}</code></td>
+                </tr>
+              ))}
+              {!loading && !displayed.length ? <tr><td className="no-rows" colSpan={5}><div className="empty-state"><Icon icon={Search01Icon} size={22} /><strong>No components found</strong><span>Try another company, sector, or country.</span></div></td></tr> : null}
+            </tbody>
+          </table>}
         </div>
 
         <div className="index-table-footer">
           <span>Showing {Math.min(displayed.length, filtered.length)} of {filtered.length} · updated {asOf}</span>
           {displayed.length < filtered.length ? <button onClick={() => setVisibleCount((count) => count + 50)} type="button">Show 50 more <Icon icon={ArrowDown01Icon} size={14} /></button> : null}
         </div>
-        <div className="index-source-note"><Icon icon={InformationCircleIcon} size={14} /> Membership: {data?.sources.membership ?? "public constituent tables"}. Prices: {data?.sources.snapshot ?? "market snapshot"}. Relative size is market-cap share of the available snapshot, not official index weight.</div>
+        <div className="index-source-note"><Icon icon={InformationCircleIcon} size={14} /> Membership: {data?.sources.membership ?? "public constituent tables"}. {hasTradableSymbols ? <>Prices: {data?.sources.snapshot ?? "market snapshot"}. Relative size is market-cap share of the available snapshot, not official index weight.</> : <>STOXX&apos;s public page exposes the current top components and internal reference keys, not the licensed full component file or exchange tickers; ticker details are intentionally disabled.</>}</div>
       </section>
 
       {selected ? <DetailDrawer constituent={selected} onClose={() => setSelected(null)} onOpenDataset={onOpenDataset} /> : null}

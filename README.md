@@ -1,6 +1,6 @@
 # Tape
 
-Tape is a focused historical market-data workspace for academic research. It fetches public Yahoo Finance price history, visualizes adjusted performance, previews analysis-ready rows, and exports reproducible CSV files that open directly in Excel and Google Sheets.
+Tape is a focused market-research workspace. It builds historical datasets, computes transparent monthly equity factors, maps current index membership, and exports reproducible CSV files that open directly in Excel and Google Sheets.
 
 ## What it does
 
@@ -15,6 +15,11 @@ Tape is a focused historical market-data workspace for academic research. It fet
 - Exports full prices, returns-only, corporate-action CSVs, structured JSON, or spreadsheet-ready clipboard data
 - Includes quick market sets and a keyboard ticker shortcut (`⌘K` / `Ctrl+K`)
 - Includes explicit research notes about adjusted data, validation, and survivorship bias
+- Computes daily returns, forward monthly return, MAX, SIZE, REV, 12–2 momentum, Amihud illiquidity, BM, and MAX(5)
+- Matches monthly MKT-RF, SMB, HML, MOM, and RF observations from the Kenneth French Data Library
+- Uses filing-aware SEC Company Facts for shares outstanding and stockholders’ equity so future filings do not leak into earlier formation months
+- Explores the S&P 500, Composite 1500, Nasdaq-100, Dow 30, and STOXX Europe 600 with explicit source and coverage labels
+- Exports both the monthly research panel and its underlying daily return observations
 
 ## Run locally
 
@@ -34,4 +39,3 @@ Import this repository into Vercel or run `vercel` from the project folder. No e
 Yahoo Finance is convenient public data, not a contracted academic dataset and not a replacement for WRDS/CRSP. Validate important observations against another source. For constituent-level S&P 500 research, use point-in-time membership data; applying today's constituents to the past creates survivorship bias.
 
 The interface uses Hugeicons Free under its MIT license.
-# Stock-Data-exports

@@ -6,24 +6,27 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Tape — Historical market data, made usable",
-  description: "Build clean, thesis-ready historical market datasets and export them to Excel or Google Sheets.",
+  title: "Tape — Market research workspace",
+  description: "Build historical datasets, research factors, and current index views in one focused workspace.",
   applicationName: "Tape",
   openGraph: {
-    title: "Tape — Historical market data, made usable",
-    description: "Ten years of clean market history. One research-ready export.",
+    title: "Tape — Market research workspace",
+    description: "Historical datasets, reproducible research factors, and current index views.",
     type: "website",
     images: [{ url: "/og.png", width: 1536, height: 1024, alt: "Tape historical market data workspace" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Tape — Historical market data, made usable",
-    description: "Ten years of clean market history. One research-ready export.",
+    title: "Tape — Market research workspace",
+    description: "Historical datasets, reproducible research factors, and current index views.",
     images: ["/og.png"],
   },
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
   colorScheme: "dark light",
   themeColor: "#080808",
 };

@@ -24,6 +24,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import IndexExplorer from "./IndexExplorer";
+import ResearchFactors from "./ResearchFactors";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -78,7 +79,7 @@ type Interval = "1d" | "1wk" | "1mo";
 type Range = "1Y" | "5Y" | "10Y" | "MAX" | "CUSTOM";
 type ChartMode = "indexed" | "price";
 type DataView = "chart" | "prices" | "returns" | "events";
-type Workspace = "dataset" | "indices";
+type Workspace = "dataset" | "factors" | "indices";
 
 type Security = { symbol: string; name: string; kind: string };
 
@@ -579,6 +580,11 @@ export default function Home() {
     setActiveView("chart");
   }
 
+  function chooseWorkspace(nextWorkspace: Workspace) {
+    setWorkspace(nextWorkspace);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+  }
+
   function openConstituentInDataset(symbol: string) {
     const dates = rangeDates("1Y");
     setSymbols([symbol]);
@@ -589,7 +595,7 @@ export default function Home() {
     setInterval("1d");
     setMode("indexed");
     setActiveView("chart");
-    setWorkspace("dataset");
+    chooseWorkspace("dataset");
     void requestData([symbol], dates.start, dates.end, "1d");
   }
 
@@ -664,22 +670,23 @@ export default function Home() {
             <span>Tape</span>
           </div>
           <nav className="side-nav" aria-label="Application">
-            <button className={workspace === "dataset" ? "is-active" : ""} onClick={() => setWorkspace("dataset")} type="button"><Icon icon={Database01Icon} size={17} /> Dataset</button>
-            <button className={workspace === "indices" ? "is-active" : ""} onClick={() => setWorkspace("indices")} type="button"><Icon icon={ChartLineData01Icon} size={17} /> Indices</button>
+            <button className={workspace === "dataset" ? "is-active" : ""} onClick={() => chooseWorkspace("dataset")} type="button"><Icon icon={Database01Icon} size={17} /> Dataset</button>
+            <button className={workspace === "factors" ? "is-active" : ""} onClick={() => chooseWorkspace("factors")} type="button"><Icon icon={Activity01Icon} size={17} /> Factors</button>
+            <button className={workspace === "indices" ? "is-active" : ""} onClick={() => chooseWorkspace("indices")} type="button"><Icon icon={ChartLineData01Icon} size={17} /> Indices</button>
             <button onClick={() => setMethodOpen(true)} type="button"><Icon icon={InformationCircleIcon} size={17} /> Methodology</button>
           </nav>
         </div>
         <div className="source-status">
           <span className="status-dot" />
-          <div><span>Source</span><strong>{workspace === "dataset" ? "Yahoo Finance" : "Public markets"}</strong></div>
+          <div><span>Source</span><strong>{workspace === "dataset" ? "Yahoo Finance" : workspace === "factors" ? "3-source model" : "Public markets"}</strong></div>
         </div>
       </aside>
 
       <section className="app-content">
         <header className="app-topbar">
           <div>
-            <h1>{workspace === "dataset" ? "Market data" : "Index explorer"}</h1>
-            <p>{workspace === "dataset" ? <>{symbols.join(" · ")} <span /> {start}—{end}</> : <>Constituents <span /> breadth · sectors · performance</>}</p>
+            <h1>{workspace === "dataset" ? "Market data" : workspace === "factors" ? "Research factors" : "Index explorer"}</h1>
+            <p>{workspace === "dataset" ? <>{symbols.join(" · ")} <span /> {start}—{end}</> : workspace === "factors" ? <>Monthly predictors <span /> filings · benchmarks</> : <>Constituents <span /> breadth · sectors · performance</>}</p>
           </div>
           <div className="topbar-actions">
             {workspace === "dataset" ? <button className="command-search" onClick={() => { symbolInputRef.current?.focus(); setSearchOpen(true); }} type="button">
@@ -935,7 +942,7 @@ export default function Home() {
               ) : null}
             </div>
           </section>
-        </div> : <IndexExplorer onOpenDataset={openConstituentInDataset} />}
+        </div> : workspace === "factors" ? <ResearchFactors /> : <IndexExplorer onOpenDataset={openConstituentInDataset} />}
       </section>
 
       {copied ? <div className="toast"><Icon icon={CheckmarkCircle02Icon} size={17} /> Copied. Paste into cell A1.</div> : null}
@@ -949,6 +956,7 @@ export default function Home() {
             <div className="method-list">
               <div><h3>Source</h3><p>Yahoo Finance. Not a replacement for WRDS, CRSP, or a licensed feed.</p></div>
               <div><h3>Adjusted close</h3><p>Use it for returns when available. Raw OHLC values remain in the export.</p></div>
+              <div><h3>Research factors</h3><p>Monthly predictors use adjusted daily returns, SEC facts filed by formation month-end, and Kenneth French monthly benchmarks.</p></div>
               <div><h3>S&amp;P 500</h3><p><code>^GSPC</code> is the index. Constituent studies need point-in-time membership to avoid survivorship bias.</p></div>
               <div><h3>Validation</h3><p>Cross-check key values and cite the source plus retrieval date.</p></div>
             </div>
