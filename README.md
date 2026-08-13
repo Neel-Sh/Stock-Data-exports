@@ -17,7 +17,8 @@ Tape is a focused market-research workspace. It builds historical datasets, comp
 - Includes explicit research notes about adjusted data, validation, and survivorship bias
 - Computes daily returns, forward monthly return, MAX, SIZE, REV, 12–2 momentum, Amihud illiquidity, BM, and MAX(5)
 - Matches monthly MKT-RF, SMB, HML, MOM, and RF observations from the Kenneth French Data Library
-- Uses filing-aware SEC Company Facts for shares outstanding and stockholders’ equity so future filings do not leak into earlier formation months
+- Uses SEC Company Facts when available, with a reported-fundamentals fallback and conservative publication lags so future inputs do not leak into earlier formation months
+- Supports stock and index factor queries; company-level SIZE and BM are explicitly not applicable to indexes
 - Explores the S&P 500, Composite 1500, Nasdaq-100, Dow 30, and STOXX Europe 600 with explicit source and coverage labels
 - Exports both the monthly research panel and its underlying daily return observations
 

@@ -14,6 +14,7 @@ import {
   SEC_REQUEST_HEADERS,
 } from "../lib/secTickerMapping";
 import { getSecFundamentalsSnapshot } from "../lib/secFundamentalsSnapshot";
+import { buildYahooFundamentalFacts, type YahooTimeseriesPayload } from "../lib/yahooFundamentals";
 
 test("SEC requests declare the application and a public contact path", () => {
   assert.match(SEC_REQUEST_HEADERS["User-Agent"], /Tape Research Dashboard/);
@@ -46,6 +47,26 @@ test("Apple SEC snapshot reproduces March 2026 SIZE and BM without look-ahead", 
   assert.ok(Math.abs(rows[0].marketCap! - 3_725_926_422_032.776) < 0.01);
   assert.ok(Math.abs(rows[0].size! - 28.946336640739798) < 1e-12);
   assert.ok(Math.abs(rows[0].bookToMarket! - 0.023669281142670997) < 1e-12);
+});
+
+test("generic fundamentals derive listed shares and convert foreign book equity", () => {
+  const payload: YahooTimeseriesPayload = { timeseries: { result: [
+    { meta: { type: ["quarterlyMarketCap"] }, quarterlyMarketCap: [{ asOfDate: "2025-12-31", currencyCode: "USD", reportedValue: { raw: 200_000 } }] },
+    { meta: { type: ["quarterlyStockholdersEquity"] }, quarterlyStockholdersEquity: [{ asOfDate: "2025-12-31", currencyCode: "TWD", reportedValue: { raw: 1_000_000 } }] },
+  ], error: null } };
+  const facts = buildYahooFundamentalFacts(payload, [
+    { date: "2025-12-31", close: 100, adjClose: 100, volume: 1_000 },
+  ], "USD", (value, from, to) => from === "TWD" && to === "USD" ? value * 0.032 : value);
+  assert.equal(facts.shares[0].value, 2_000);
+  assert.equal(facts.shares[0].filed, "2026-03-01");
+  assert.equal(facts.bookEquity[0].value, 32_000);
+  const rows = buildResearchFactorRows([
+    { date: "2026-02-27", close: 110, adjClose: 110, volume: 1_000 },
+    { date: "2026-03-31", close: 120, adjClose: 120, volume: 1_000 },
+  ], facts);
+  assert.equal(rows[0].marketCap, null);
+  assert.equal(rows[1].marketCap, 240_000);
+  assert.ok(Math.abs(rows[1].bookToMarket! - 32_000 / 240_000) < 1e-12);
 });
 
 test("Kenneth French CSV values are normalized from percentage points", () => {

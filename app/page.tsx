@@ -956,7 +956,7 @@ export default function Home() {
             <div className="method-list">
               <div><h3>Source</h3><p>Yahoo Finance. Not a replacement for WRDS, CRSP, or a licensed feed.</p></div>
               <div><h3>Adjusted close</h3><p>Use it for returns when available. Raw OHLC values remain in the export.</p></div>
-              <div><h3>Research factors</h3><p>Monthly predictors use adjusted daily returns, SEC facts filed by formation month-end, and Kenneth French monthly benchmarks.</p></div>
+              <div><h3>Research factors</h3><p>Monthly predictors use adjusted daily returns, point-in-time reported fundamentals for stocks, and Kenneth French monthly benchmarks.</p></div>
               <div><h3>S&amp;P 500</h3><p><code>^GSPC</code> is the index. Constituent studies need point-in-time membership to avoid survivorship bias.</p></div>
               <div><h3>Validation</h3><p>Cross-check key values and cite the source plus retrieval date.</p></div>
             </div>

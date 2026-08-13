@@ -14,10 +14,11 @@ import {
   type SecTickerRecord,
 } from "@/lib/secTickerMapping";
 import { getSecFundamentalsSnapshot } from "@/lib/secFundamentalsSnapshot";
+import { buildYahooFundamentalFacts, type YahooTimeseriesPayload } from "@/lib/yahooFundamentals";
 
 export const runtime = "edge";
 
-const SYMBOL_PATTERN = /^[A-Z0-9.-]{1,16}$/i;
+const SYMBOL_PATTERN = /^[A-Z0-9.^=-]{1,24}$/i;
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 const SEC_FORMS = new Set(["10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A", "40-F", "40-F/A"]);
 const FRENCH_RESEARCH_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_CSV.zip";
@@ -32,6 +33,7 @@ type YahooChartResponse = {
         shortName?: string;
         currency?: string;
         exchangeName?: string;
+        instrumentType?: string;
       };
       timestamp?: number[];
       indicators?: {
@@ -118,7 +120,108 @@ async function fetchYahooDaily(symbol: string, startMonth: string, endMonth: str
     symbol: result.meta?.symbol ?? symbol,
     currency: result.meta?.currency ?? "USD",
     exchange: result.meta?.exchangeName ?? "Market",
+    instrumentType: result.meta?.instrumentType ?? "UNKNOWN",
   };
+}
+
+const YAHOO_FUNDAMENTAL_TYPES = [
+  "quarterlyMarketCap",
+  "annualMarketCap",
+  "quarterlyStockholdersEquity",
+  "annualStockholdersEquity",
+  "quarterlyCommonStockEquity",
+  "annualCommonStockEquity",
+];
+
+async function fetchYahooReportedFundamentals(symbol: string) {
+  const url = new URL(`https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}`);
+  url.searchParams.set("symbol", symbol);
+  url.searchParams.set("type", YAHOO_FUNDAMENTAL_TYPES.join(","));
+  url.searchParams.set("period1", "0");
+  url.searchParams.set("period2", String(Math.floor(Date.now() / 1000)));
+  const response = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; TapeResearch/1.2)" },
+    next: { revalidate: 21_600 },
+  });
+  if (!response.ok) throw new Error("Reported fundamentals are temporarily unavailable.");
+  const payload = await response.json() as YahooTimeseriesPayload;
+  if (payload.timeseries?.error) throw new Error(payload.timeseries.error.description ?? "Reported fundamentals are temporarily unavailable.");
+  return payload;
+}
+
+type FxPoint = { date: string; close: number };
+
+function normalizedCurrency(currency: string) {
+  const minorCurrencies: Record<string, { base: string; perBase: number }> = {
+    GBp: { base: "GBP", perBase: 100 },
+    GBX: { base: "GBP", perBase: 100 },
+    ILA: { base: "ILS", perBase: 100 },
+    ZAc: { base: "ZAR", perBase: 100 },
+  };
+  return minorCurrencies[currency] ?? { base: currency, perBase: 1 };
+}
+
+async function fetchFxPair(symbol: string, start: string, end: string) {
+  const url = new URL(`https://query2.finance.yahoo.com/v8/finance/chart/${symbol}`);
+  url.searchParams.set("period1", String(unixSeconds(start)));
+  url.searchParams.set("period2", String(unixSeconds(end) + 86_400));
+  url.searchParams.set("interval", "1d");
+  const response = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; TapeResearch/1.2)" },
+    next: { revalidate: 21_600 },
+  });
+  if (!response.ok) return [];
+  const payload = await response.json() as YahooChartResponse;
+  const result = payload.chart?.result?.[0];
+  return (result?.timestamp ?? []).flatMap((timestamp, index): FxPoint[] => {
+    const close = finiteOrNull(result?.indicators?.quote?.[0]?.close?.[index]);
+    return close && close > 0 ? [{ date: new Date(timestamp * 1000).toISOString().slice(0, 10), close }] : [];
+  });
+}
+
+async function fetchFxHistory(fromCurrency: string, toCurrency: string, start: string, end: string) {
+  const from = normalizedCurrency(fromCurrency);
+  const to = normalizedCurrency(toCurrency);
+  if (from.base === to.base) return [];
+  const direct = await fetchFxPair(`${from.base}${to.base}=X`, start, end);
+  if (direct.length) return direct;
+  const inverse = await fetchFxPair(`${to.base}${from.base}=X`, start, end);
+  return inverse.map((point) => ({ ...point, close: 1 / point.close }));
+}
+
+async function yahooFundamentalFallback(
+  symbol: string,
+  market: Awaited<ReturnType<typeof fetchYahooDaily>>,
+  payload: YahooTimeseriesPayload,
+) {
+  const currencies = new Set<string>();
+  for (const result of payload.timeseries?.result ?? []) {
+    for (const [key, value] of Object.entries(result)) {
+      if (!YAHOO_FUNDAMENTAL_TYPES.includes(key) || !Array.isArray(value)) continue;
+      for (const item of value as Array<{ currencyCode?: string }>) if (item.currencyCode) currencies.add(item.currencyCode);
+    }
+  }
+  const dates = market.points.map((point) => point.date).sort();
+  const fxEntries = await Promise.all([...currencies].map(async (currency) => [
+    currency,
+    await fetchFxHistory(currency, market.currency, dates[0], dates.at(-1)!),
+  ] as const));
+  const fx = new Map(fxEntries);
+  const convertCurrency = (value: number, fromCurrency: string, toCurrency: string, date: string) => {
+    const from = normalizedCurrency(fromCurrency);
+    const to = normalizedCurrency(toCurrency);
+    if (from.base === to.base) return value * (to.perBase / from.perBase);
+    const rate = (fx.get(fromCurrency) ?? []).filter((point) => point.date <= date).sort((a, b) => b.date.localeCompare(a.date))[0];
+    return rate ? value * rate.close * (to.perBase / from.perBase) : null;
+  };
+  const facts = buildYahooFundamentalFacts(payload, market.points, market.currency, convertCurrency);
+  return facts.shares.length || facts.bookEquity.length ? {
+    cik: null,
+    entityName: market.name,
+    ...facts,
+    snapshotAsOf: null,
+    source: "Yahoo reported fundamentals",
+  } : null;
 }
 
 function reportedFacts(
@@ -220,7 +323,7 @@ export async function GET(request: NextRequest) {
   const end = request.nextUrl.searchParams.get("end") ?? lastCompleteMonth;
   const start = request.nextUrl.searchParams.get("start") ?? addMonths(end, -23);
 
-  if (!SYMBOL_PATTERN.test(symbol)) return NextResponse.json({ error: "Choose one valid equity ticker." }, { status: 400 });
+  if (!SYMBOL_PATTERN.test(symbol)) return NextResponse.json({ error: "Choose one valid stock or index ticker." }, { status: 400 });
   if (!MONTH_PATTERN.test(start) || !MONTH_PATTERN.test(end) || start > end) {
     return NextResponse.json({ error: "Choose a valid start and end month." }, { status: 400 });
   }
@@ -235,11 +338,15 @@ export async function GET(request: NextRequest) {
   const calculationEnd = nextMonthIsComplete ? addMonths(end, 1) : end;
 
   try {
-    const [market, secOutcome, frenchOutcome] = await Promise.all([
+    const [market, secOutcome, yahooFundamentalsOutcome, frenchOutcome] = await Promise.all([
       fetchYahooDaily(symbol, start, calculationEnd),
       fetchSecFundamentals(symbol).then((value) => ({ value, error: null })).catch((error: unknown) => ({
         value: null,
         error: error instanceof Error ? error.message : "SEC fundamentals are unavailable.",
+      })),
+      fetchYahooReportedFundamentals(symbol).then((value) => ({ value, error: null })).catch((error: unknown) => ({
+        value: null,
+        error: error instanceof Error ? error.message : "Reported fundamentals are unavailable.",
       })),
       fetchFrenchFactors().then((value) => ({ value, error: null })).catch((error: unknown) => ({
         value: [],
@@ -247,9 +354,14 @@ export async function GET(request: NextRequest) {
       })),
     ]);
 
+    const fundamentalsApplicable = market.instrumentType === "EQUITY";
+    const fallbackFundamentals = fundamentalsApplicable && !secOutcome.value && yahooFundamentalsOutcome.value
+      ? await yahooFundamentalFallback(symbol, market, yahooFundamentalsOutcome.value)
+      : null;
+    const fundamentals = secOutcome.value ? { ...secOutcome.value, source: "SEC Company Facts" } : fallbackFundamentals;
     const rows = buildResearchFactorRows(market.points, {
-      shares: secOutcome.value?.shares ?? [],
-      bookEquity: secOutcome.value?.bookEquity ?? [],
+      shares: fundamentals?.shares ?? [],
+      bookEquity: fundamentals?.bookEquity ?? [],
       riskFactors: frenchOutcome.value,
     }).filter((row) => row.month >= start && row.month <= end);
     if (!rows.length) throw new Error(`No complete monthly observations were found for ${symbol} in that window.`);
@@ -260,11 +372,11 @@ export async function GET(request: NextRequest) {
       .filter((row) => [row.mktRf, row.smb, row.hml, row.factorMomentum, row.rf].some((value) => value == null))
       .map((row) => row.month);
     const warnings = [
-      secOutcome.error,
+      fundamentalsApplicable && !fundamentals ? secOutcome.error ?? yahooFundamentalsOutcome.error : null,
       frenchOutcome.error,
-      !secOutcome.value && !secOutcome.error ? "SIZE and BM are unavailable because this ticker has no matched SEC Company Facts record." : null,
-      secOutcome.value && !secOutcome.value.shares.length ? "SIZE is unavailable because no eligible shares-outstanding fact was found." : null,
-      secOutcome.value && !secOutcome.value.bookEquity.length ? "BM is unavailable because no eligible reported-equity fact was found." : null,
+      fundamentalsApplicable && !fundamentals ? "SIZE and BM are unavailable because no reported fundamentals were found for this listing." : null,
+      fundamentalsApplicable && fundamentals && !fundamentals.shares.length ? "SIZE is unavailable because no eligible listed-share or market-cap record was found." : null,
+      fundamentalsApplicable && fundamentals && !fundamentals.bookEquity.length ? "BM is unavailable because no eligible reported-equity fact was found." : null,
     ].filter((value): value is string => Boolean(value));
 
     return NextResponse.json({
@@ -272,6 +384,8 @@ export async function GET(request: NextRequest) {
       name: market.name,
       currency: market.currency,
       exchange: market.exchange,
+      instrumentType: market.instrumentType,
+      fundamentalsApplicable,
       start,
       end,
       rows,
@@ -282,18 +396,21 @@ export async function GET(request: NextRequest) {
         pendingMonths: missingRiskFactorMonths,
       },
       requestedAt: new Date().toISOString(),
-      fundamentals: secOutcome.value ? {
-        cik: secOutcome.value.cik,
-        entityName: secOutcome.value.entityName,
-        snapshotAsOf: secOutcome.value.snapshotAsOf,
-        pointInTimeRule: "Fact period end and filing date must both be on or before formation month-end.",
+      fundamentals: fundamentals ? {
+        cik: fundamentals.cik,
+        entityName: fundamentals.entityName,
+        snapshotAsOf: fundamentals.snapshotAsOf,
+        source: fundamentals.source,
+        pointInTimeRule: fundamentals.source === "SEC Company Facts"
+          ? "Fact period end and filing date must both be on or before formation month-end."
+          : "Reported period end plus a conservative 60-day quarterly or 120-day annual publication lag must be on or before formation month-end.",
         bookEquityDefinition: "Reported common stockholders' equity when available; otherwise reported stockholders' equity proxy.",
       } : null,
       sources: {
         market: "Yahoo Finance daily chart data",
-        fundamentals: secOutcome.value?.snapshotAsOf
-          ? `SEC Company Facts snapshot (${secOutcome.value.snapshotAsOf})`
-          : "SEC Company Facts",
+        fundamentals: fundamentals?.source === "SEC Company Facts" && fundamentals.snapshotAsOf
+          ? `SEC Company Facts snapshot (${fundamentals.snapshotAsOf})`
+          : fundamentals?.source ?? (fundamentalsApplicable ? "Unavailable" : "Not applicable to this instrument"),
         riskFactors: "Kenneth French Data Library monthly factors",
       },
       methodology: {

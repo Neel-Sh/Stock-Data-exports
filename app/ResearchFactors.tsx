@@ -24,6 +24,8 @@ type ResearchResponse = {
   name: string;
   currency: string;
   exchange: string;
+  instrumentType: string;
+  fundamentalsApplicable: boolean;
   start: string;
   end: string;
   rows: ResearchFactorRow[];
@@ -35,9 +37,10 @@ type ResearchResponse = {
   };
   requestedAt: string;
   fundamentals: {
-    cik: string;
+    cik: string | null;
     entityName: string;
     snapshotAsOf: string | null;
+    source: string;
     pointInTimeRule: string;
     bookEquityDefinition: string;
   } | null;
@@ -246,8 +249,8 @@ export default function ResearchFactors() {
 
         <form className="factor-builder" onSubmit={(event) => { event.preventDefault(); void requestFactors(symbol, start, end); }}>
           <label className="factor-field" htmlFor="factor-symbol">
-            <span>Equity ticker</span>
-            <div><Icon icon={Search01Icon} size={16} /><input id="factor-symbol" maxLength={16} onChange={(event) => setSymbol(event.target.value.toUpperCase())} pattern="[A-Za-z0-9.-]+" value={symbol} /></div>
+            <span>Stock or index ticker</span>
+            <div><Icon icon={Search01Icon} size={16} /><input id="factor-symbol" maxLength={24} onChange={(event) => setSymbol(event.target.value.toUpperCase())} pattern="[A-Za-z0-9.^=\-]+" value={symbol} /></div>
           </label>
           <div className="factor-date-grid">
             <label className="factor-field" htmlFor="factor-start"><span>Formation start</span><div><Icon icon={Calendar03Icon} size={15} /><input id="factor-start" max={end} onChange={(event) => setStart(event.target.value)} type="month" value={start} /></div></label>
@@ -269,7 +272,7 @@ export default function ResearchFactors() {
           <div className="factor-source-stack">
             <span>Data lineage</span>
             <a href="https://finance.yahoo.com/" rel="noreferrer" target="_blank"><i className="source-yahoo" /> Yahoo Finance <small>prices + volume</small></a>
-            <a href="https://data.sec.gov/" rel="noreferrer" target="_blank"><i className="source-sec" /> SEC Company Facts <small>{data?.fundamentals?.snapshotAsOf ? `verified ${data.fundamentals.snapshotAsOf}` : "shares + equity"}</small></a>
+            <a href={data?.fundamentals?.source === "Yahoo reported fundamentals" ? "https://finance.yahoo.com/" : "https://data.sec.gov/"} rel="noreferrer" target="_blank"><i className="source-sec" /> Reported fundamentals <small>{data?.fundamentals?.source ?? (data?.fundamentalsApplicable === false ? "not applicable" : "shares + equity")}</small></a>
             <a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html" rel="noreferrer" target="_blank"><i className="source-french" /> Kenneth French <small>risk factors</small></a>
           </div>
         </details>
@@ -314,10 +317,11 @@ export default function ResearchFactors() {
             {METRICS.map((metric) => {
               const value = selected[metric.key] as number | null;
               const valueTone = metric.tone?.(value);
+              const notApplicable = !data?.fundamentalsApplicable && (metric.key === "size" || metric.key === "bookToMarket");
               return <article className="factor-metric-card" key={metric.key}>
                 <span><em>{metric.label}</em><b>{metric.symbol}</b></span>
-                <strong className={valueTone ? `is-${valueTone}` : ""}>{metric.format(value)}</strong>
-                <p>{metric.formula}</p>
+                <strong className={valueTone ? `is-${valueTone}` : ""}>{notApplicable ? "N/A" : metric.format(value)}</strong>
+                <p>{notApplicable ? `Not defined for ${data?.instrumentType.toLowerCase() ?? "this instrument"}` : metric.formula}</p>
               </article>;
             })}
           </div>
@@ -334,15 +338,15 @@ export default function ResearchFactors() {
           </section>
 
           <div className="factor-provenance" aria-label="Selected month provenance">
-            <div><span>Market cap</span><strong>{compactMoney(selected.marketCap, currency)}</strong><small>Unadjusted close × reported shares</small></div>
-            <div><span>Shares fact</span><strong>{selected.shares ? `${number(selected.shares.value, 0)} shares` : "Unavailable"}</strong><small>{selected.shares ? `${selected.shares.form} · filed ${selected.shares.filed}` : "No point-in-time SEC fact"}</small></div>
-            <div><span>Book equity fact</span><strong>{selected.bookEquity ? compactMoney(selected.bookEquity.value, currency) : "Unavailable"}</strong><small>{selected.bookEquity ? `${selected.bookEquity.form} · filed ${selected.bookEquity.filed}` : "No point-in-time SEC fact"}</small></div>
+            <div><span>Market cap</span><strong>{data?.fundamentalsApplicable ? compactMoney(selected.marketCap, currency) : "N/A"}</strong><small>{data?.fundamentalsApplicable ? "Unadjusted close × listed shares" : `Not defined for ${data?.instrumentType.toLowerCase() ?? "this instrument"}`}</small></div>
+            <div><span>Shares fact</span><strong>{data?.fundamentalsApplicable ? selected.shares ? `${number(selected.shares.value, 0)} shares` : "Unavailable" : "N/A"}</strong><small>{selected.shares ? `${selected.shares.form} · available ${selected.shares.filed}` : data?.fundamentalsApplicable ? "No point-in-time listed-share fact" : "No company-level shares"}</small></div>
+            <div><span>Book equity fact</span><strong>{data?.fundamentalsApplicable ? selected.bookEquity ? compactMoney(selected.bookEquity.value, currency) : "Unavailable" : "N/A"}</strong><small>{selected.bookEquity ? `${selected.bookEquity.form} · available ${selected.bookEquity.filed}` : data?.fundamentalsApplicable ? "No point-in-time reported-equity fact" : "No company-level book equity"}</small></div>
           </div>
 
           {view === "monthly" ? <div className="factor-table-wrap">
             <table className="factor-table">
               <thead><tr><th>Formation month</th>{MONTHLY_COLUMNS.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
-              <tbody>{monthlyRows.map((row) => <tr className={row.month === selected.month ? "is-selected" : ""} key={row.month}><td><button onClick={() => setSelectedMonth(row.month)} type="button"><strong>{row.month}</strong><small>{row.tradingDays} days</small></button></td>{MONTHLY_COLUMNS.map((column) => { const value = row[column.key] as number | null; return <td className={column.key !== "size" && column.key !== "illiquidity" && column.key !== "bookToMarket" && tone(value) ? `is-${tone(value)}` : ""} key={column.key}>{column.format(value)}</td>; })}</tr>)}</tbody>
+              <tbody>{monthlyRows.map((row) => <tr className={row.month === selected.month ? "is-selected" : ""} key={row.month}><td><button onClick={() => setSelectedMonth(row.month)} type="button"><strong>{row.month}</strong><small>{row.tradingDays} days</small></button></td>{MONTHLY_COLUMNS.map((column) => { const value = row[column.key] as number | null; const notApplicable = !data?.fundamentalsApplicable && (column.key === "size" || column.key === "bookToMarket"); return <td className={column.key !== "size" && column.key !== "illiquidity" && column.key !== "bookToMarket" && tone(value) ? `is-${tone(value)}` : ""} key={column.key}>{notApplicable ? "N/A" : column.format(value)}</td>; })}</tr>)}</tbody>
             </table>
           </div> : <div className="factor-table-wrap daily-factor-table-wrap">
             <table className="factor-table daily-factor-table">
@@ -351,7 +355,7 @@ export default function ResearchFactors() {
             </table>
           </div>}
 
-          <footer className="factor-method-note"><Icon icon={InformationCircleIcon} size={14} /><span>Returns use adjusted close. <code>SIZE</code> and <code>BM</code> only use SEC facts filed by the formation month-end. The last month&apos;s forward return remains blank until the following month is complete.</span></footer>
+          <footer className="factor-method-note"><Icon icon={InformationCircleIcon} size={14} /><span>Returns use adjusted close. For stocks, <code>SIZE</code> and <code>BM</code> only use reported inputs available by formation month-end; index-level values are not applicable. The last month&apos;s forward return remains blank until the following month is complete.</span></footer>
         </> : <div className="factor-empty" aria-live="polite">Run a query to build the monthly research panel.</div>}
       </section>
       {exported ? <div className="toast" aria-live="polite"><Icon icon={CheckmarkCircle02Icon} size={17} /> {exported}</div> : null}
