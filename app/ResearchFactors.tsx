@@ -29,6 +29,10 @@ type ResearchResponse = {
   rows: ResearchFactorRow[];
   daily: DailyReturnPoint[];
   warnings: string[];
+  benchmarkCoverage: {
+    latestAvailableMonth: string | null;
+    pendingMonths: string[];
+  };
   requestedAt: string;
   fundamentals: {
     cik: string;
@@ -199,6 +203,11 @@ export default function ResearchFactors() {
   const dailyRows = useMemo(() => (data?.daily ?? []).filter((point) => point.date.startsWith(selected?.month ?? "")).reverse(), [data?.daily, selected?.month]);
   const maxMonth = defaults.current.end;
   const currency = data?.currency ?? "USD";
+  const selectedBenchmarkStatus = selected == null || selected.mktRf != null
+    ? null
+    : data?.benchmarkCoverage.pendingMonths.includes(selected.month)
+      ? "pending publication"
+      : "unavailable";
 
   function exportMonthlyCsv() {
     if (!data) return;
@@ -313,7 +322,7 @@ export default function ResearchFactors() {
           </div>
 
           <section className="benchmark-strip" aria-label="Risk factor benchmarks">
-            <div><span>Risk benchmarks</span><strong>Kenneth French · {selected.month}{selected.mktRf == null ? " · pending" : ""}</strong></div>
+            <div><span>Risk benchmarks</span><strong>Kenneth French · {selected.month}{selectedBenchmarkStatus ? ` · ${selectedBenchmarkStatus}` : ""}</strong></div>
             <dl>
               <div><dt>MKT-RF</dt><dd className={tone(selected.mktRf) ? `is-${tone(selected.mktRf)}` : ""}>{percent(selected.mktRf)}</dd></div>
               <div><dt>SMB</dt><dd className={tone(selected.smb) ? `is-${tone(selected.smb)}` : ""}>{percent(selected.smb)}</dd></div>

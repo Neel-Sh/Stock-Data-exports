@@ -8,6 +8,28 @@ import {
   type ReportedFact,
 } from "../lib/researchFactors";
 import { mergeFrenchFactors } from "../lib/frenchFactors";
+import {
+  findSecCompanyInJson,
+  findSecCompanyInText,
+  SEC_REQUEST_HEADERS,
+} from "../lib/secTickerMapping";
+
+test("SEC requests declare the application and a public contact path", () => {
+  assert.match(SEC_REQUEST_HEADERS["User-Agent"], /Tape Research Dashboard/);
+  assert.match(SEC_REQUEST_HEADERS["User-Agent"], /https:\/\/github\.com\/Neel-Sh\/Stock-Data-exports/);
+  assert.equal(SEC_REQUEST_HEADERS["Accept-Encoding"], "gzip, deflate");
+});
+
+test("SEC ticker lookup supports the primary JSON and text fallback formats", () => {
+  assert.deepEqual(findSecCompanyInJson({
+    "0": { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." },
+  }, "aapl"), { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." });
+  assert.deepEqual(findSecCompanyInText("msft\t789019\naapl\t320193\n", "AAPL"), {
+    cik_str: 320193,
+    ticker: "AAPL",
+  });
+  assert.equal(findSecCompanyInText("msft\t789019\n", "AAPL"), null);
+});
 
 test("Kenneth French CSV values are normalized from percentage points", () => {
   const researchCsv = [

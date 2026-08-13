@@ -7,6 +7,12 @@ import {
   type DailyMarketPoint,
   type ReportedFact,
 } from "@/lib/researchFactors";
+import {
+  findSecCompanyInJson,
+  findSecCompanyInText,
+  SEC_REQUEST_HEADERS,
+  type SecTickerRecord,
+} from "@/lib/secTickerMapping";
 
 export const runtime = "edge";
 
@@ -39,7 +45,6 @@ type YahooChartResponse = {
   };
 };
 
-type SecTickerMap = Record<string, { cik_str?: number; ticker?: string; title?: string }>;
 type SecFactValue = { val?: number; end?: string; filed?: string; form?: string };
 type SecCompanyFacts = {
   entityName?: string;
@@ -132,21 +137,37 @@ function reportedFacts(
   return [];
 }
 
-async function fetchSecFundamentals(symbol: string) {
-  const headers = { Accept: "application/json", "User-Agent": "TapeResearch/1.2 research-dashboard" };
+async function fetchSecCompany(symbol: string): Promise<SecTickerRecord | null> {
   const tickersResponse = await fetch("https://www.sec.gov/files/company_tickers.json", {
-    headers,
+    headers: SEC_REQUEST_HEADERS,
     next: { revalidate: 86_400 },
   });
-  if (!tickersResponse.ok) throw new Error("SEC ticker mapping is temporarily unavailable.");
-  const tickers = await tickersResponse.json() as SecTickerMap;
-  const company = Object.values(tickers).find((item) => item.ticker?.toUpperCase() === symbol);
-  if (!company?.cik_str) return null;
+  if (tickersResponse.ok) {
+    try {
+      const company = findSecCompanyInJson(await tickersResponse.json(), symbol);
+      if (company) return company;
+      return null;
+    } catch {
+      // Fall through to the smaller SEC ticker/CIK file if the JSON feed is malformed.
+    }
+  }
+
+  const tickerTextResponse = await fetch("https://www.sec.gov/include/ticker.txt", {
+    headers: SEC_REQUEST_HEADERS,
+    next: { revalidate: 86_400 },
+  });
+  if (!tickerTextResponse.ok) throw new Error("SEC ticker mapping is temporarily unavailable.");
+  return findSecCompanyInText(await tickerTextResponse.text(), symbol);
+}
+
+async function fetchSecFundamentals(symbol: string) {
+  const company = await fetchSecCompany(symbol);
+  if (!company) return null;
 
   const cik = String(company.cik_str).padStart(10, "0");
   const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
-    headers,
-    cache: "no-store",
+    headers: SEC_REQUEST_HEADERS,
+    next: { revalidate: 3600 },
   });
   if (!factsResponse.ok) throw new Error("SEC Company Facts is temporarily unavailable.");
   const payload = await factsResponse.json() as SecCompanyFacts;
@@ -223,19 +244,13 @@ export async function GET(request: NextRequest) {
 
     const daily = calculateDailyReturns(market.points)
       .filter((point) => point.date.slice(0, 7) >= start && point.date.slice(0, 7) <= end);
-    const missingRiskFactorMonths = rows
+    const missingRiskFactorMonths = frenchOutcome.error ? [] : rows
       .filter((row) => [row.mktRf, row.smb, row.hml, row.factorMomentum, row.rf].some((value) => value == null))
       .map((row) => row.month);
-    const riskFactorLagWarning = missingRiskFactorMonths.length
-      ? missingRiskFactorMonths.length <= 3
-        ? `Kenneth French benchmarks are not yet published for ${missingRiskFactorMonths.join(", ")}; those cells remain blank.`
-        : `Kenneth French benchmarks are unavailable for ${missingRiskFactorMonths.length} requested months; those cells remain blank.`
-      : null;
     const warnings = [
       secOutcome.error,
       frenchOutcome.error,
-      riskFactorLagWarning,
-      !secOutcome.value ? "SIZE and BM are unavailable because this ticker has no matched SEC Company Facts record." : null,
+      !secOutcome.value && !secOutcome.error ? "SIZE and BM are unavailable because this ticker has no matched SEC Company Facts record." : null,
       secOutcome.value && !secOutcome.value.shares.length ? "SIZE is unavailable because no eligible shares-outstanding fact was found." : null,
       secOutcome.value && !secOutcome.value.bookEquity.length ? "BM is unavailable because no eligible reported-equity fact was found." : null,
     ].filter((value): value is string => Boolean(value));
@@ -250,6 +265,10 @@ export async function GET(request: NextRequest) {
       rows,
       daily,
       warnings,
+      benchmarkCoverage: {
+        latestAvailableMonth: frenchOutcome.value.at(-1)?.month ?? null,
+        pendingMonths: missingRiskFactorMonths,
+      },
       requestedAt: new Date().toISOString(),
       fundamentals: secOutcome.value ? {
         cik: secOutcome.value.cik,
