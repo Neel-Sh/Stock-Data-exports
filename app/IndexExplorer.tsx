@@ -269,6 +269,7 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
     if (nextIndex === indexId) return;
     setLoading(true);
     setError(null);
+    setData(null);
     setIndexId(nextIndex);
     setQuery("");
     setSector("All sectors");

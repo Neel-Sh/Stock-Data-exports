@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  parseStoxxMembership,
+  stoxxFallbackMembership,
+  type IndexMember as Membership,
+} from "@/lib/indexMembership";
 
 export const runtime = "edge";
 
@@ -12,15 +17,6 @@ type IndexConfig = {
   pages: string[];
   description: string;
   weighting: string;
-};
-
-type Membership = {
-  symbol: string;
-  name: string;
-  sector: string;
-  industry: string;
-  dateAdded: string | null;
-  dataSymbol?: string | null;
 };
 
 type NasdaqRow = {
@@ -199,36 +195,6 @@ function quoteKey(symbol: string) {
   return symbol.replace(/[./-]/g, "").toUpperCase();
 }
 
-function cleanHtml(value: string) {
-  return value
-    .replace(/<input\b[^>]*>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parseStoxxMembership(html: string) {
-  const body = html.match(/<tbody[^>]*id=["']components-table-body["'][^>]*>([\s\S]*?)<\/tbody>/i)?.[1];
-  if (!body) throw new Error("The official STOXX component table could not be found.");
-  const members = [...body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].flatMap((row): Membership[] => {
-    const cells = [...row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => cell[1]);
-    const key = cells[0]?.match(/component-details\?key=([a-z0-9]+)/i)?.[1];
-    const name = cleanHtml(cells[0] ?? "");
-    const sector = cleanHtml(cells[1] ?? "");
-    const country = cleanHtml(cells[2] ?? "");
-    if (!key || !name) return [];
-    return [{ symbol: `STX${key}`, name, sector, industry: country, dateAdded: null, dataSymbol: null }];
-  });
-  const asOf = cleanHtml(html.match(/As of Date:\s*([^<]+)/i)?.[1] ?? "");
-  const total = Number(html.match(/Total\s*\((\d+)\s+Components\)/i)?.[1]);
-  if (total !== 600 || members.length < 10) throw new Error("The official STOXX component summary is incomplete.");
-  return { members, asOf, total, coverage: "Top components" };
-}
-
 async function fetchMembership(config: IndexConfig) {
   if (config.id === "europe600") {
     const url = new URL("https://www.stoxx.com/index-details");
@@ -241,23 +207,20 @@ async function fetchMembership(config: IndexConfig) {
     url.searchParams.set("p_p_mode", "view");
     url.searchParams.set("p_p_resource_id", "addComponentsTab");
     url.searchParams.set("p_p_state", "normal");
-    let lastError: unknown = new Error("Official STOXX membership is temporarily unavailable.");
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const response = await fetch(url, attempt === 0 ? {
-          headers: { Accept: "text/html", "User-Agent": "TapeResearch/1.2 (index explorer)" },
+          headers: { Accept: "text/html", "User-Agent": "Tape Research Dashboard (+https://github.com/Neel-Sh/Stock-Data-exports)" },
           next: { revalidate: 21_600 },
         } : {
-          headers: { Accept: "text/html", "User-Agent": "TapeResearch/1.2 (index explorer)" },
+          headers: { Accept: "text/html", "User-Agent": "Tape Research Dashboard (+https://github.com/Neel-Sh/Stock-Data-exports)" },
           cache: "no-store",
         });
         if (!response.ok) throw new Error("Official STOXX membership is temporarily unavailable.");
         return parseStoxxMembership(await response.text());
-      } catch (error) {
-        lastError = error;
-      }
+      } catch { /* Try once without the framework cache, then use the verified snapshot. */ }
     }
-    throw lastError;
+    return stoxxFallbackMembership();
   }
 
   const lists = await Promise.all(config.pages.map(async (page) => {
