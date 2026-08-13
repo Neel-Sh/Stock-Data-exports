@@ -37,6 +37,7 @@ type ResearchResponse = {
   fundamentals: {
     cik: string;
     entityName: string;
+    snapshotAsOf: string | null;
     pointInTimeRule: string;
     bookEquityDefinition: string;
   } | null;
@@ -268,7 +269,7 @@ export default function ResearchFactors() {
           <div className="factor-source-stack">
             <span>Data lineage</span>
             <a href="https://finance.yahoo.com/" rel="noreferrer" target="_blank"><i className="source-yahoo" /> Yahoo Finance <small>prices + volume</small></a>
-            <a href="https://data.sec.gov/" rel="noreferrer" target="_blank"><i className="source-sec" /> SEC Company Facts <small>shares + equity</small></a>
+            <a href="https://data.sec.gov/" rel="noreferrer" target="_blank"><i className="source-sec" /> SEC Company Facts <small>{data?.fundamentals?.snapshotAsOf ? `verified ${data.fundamentals.snapshotAsOf}` : "shares + equity"}</small></a>
             <a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html" rel="noreferrer" target="_blank"><i className="source-french" /> Kenneth French <small>risk factors</small></a>
           </div>
         </details>

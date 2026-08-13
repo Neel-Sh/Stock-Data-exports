@@ -13,6 +13,7 @@ import {
   SEC_REQUEST_HEADERS,
   type SecTickerRecord,
 } from "@/lib/secTickerMapping";
+import { getSecFundamentalsSnapshot } from "@/lib/secFundamentalsSnapshot";
 
 export const runtime = "edge";
 
@@ -161,26 +162,37 @@ async function fetchSecCompany(symbol: string): Promise<SecTickerRecord | null> 
 }
 
 async function fetchSecFundamentals(symbol: string) {
-  const company = await fetchSecCompany(symbol);
+  const snapshot = getSecFundamentalsSnapshot(symbol);
+  const company = snapshot ? {
+    cik_str: Number(snapshot.cik),
+    ticker: symbol,
+    title: snapshot.entityName,
+  } : await fetchSecCompany(symbol);
   if (!company) return null;
 
   const cik = String(company.cik_str).padStart(10, "0");
-  const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
-    headers: SEC_REQUEST_HEADERS,
-    next: { revalidate: 3600 },
-  });
-  if (!factsResponse.ok) throw new Error("SEC Company Facts is temporarily unavailable.");
-  const payload = await factsResponse.json() as SecCompanyFacts;
-  return {
-    cik,
-    entityName: payload.entityName ?? company.title ?? symbol,
-    shares: reportedFacts(payload, "dei", ["EntityCommonStockSharesOutstanding"], "shares"),
-    bookEquity: reportedFacts(payload, "us-gaap", [
-      "CommonStockholdersEquity",
-      "StockholdersEquity",
-      "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-    ], "USD"),
-  };
+  try {
+    const factsResponse = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
+      headers: SEC_REQUEST_HEADERS,
+      next: { revalidate: 3600 },
+    });
+    if (!factsResponse.ok) throw new Error("SEC Company Facts is temporarily unavailable.");
+    const payload = await factsResponse.json() as SecCompanyFacts;
+    return {
+      cik,
+      entityName: payload.entityName ?? company.title ?? symbol,
+      shares: reportedFacts(payload, "dei", ["EntityCommonStockSharesOutstanding"], "shares"),
+      bookEquity: reportedFacts(payload, "us-gaap", [
+        "CommonStockholdersEquity",
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+      ], "USD"),
+      snapshotAsOf: null,
+    };
+  } catch (error) {
+    if (!snapshot) throw error;
+    return { ...snapshot, snapshotAsOf: snapshot.retrievedAt };
+  }
 }
 
 async function fetchZippedCsv(url: string) {
@@ -273,12 +285,15 @@ export async function GET(request: NextRequest) {
       fundamentals: secOutcome.value ? {
         cik: secOutcome.value.cik,
         entityName: secOutcome.value.entityName,
+        snapshotAsOf: secOutcome.value.snapshotAsOf,
         pointInTimeRule: "Fact period end and filing date must both be on or before formation month-end.",
         bookEquityDefinition: "Reported common stockholders' equity when available; otherwise reported stockholders' equity proxy.",
       } : null,
       sources: {
         market: "Yahoo Finance daily chart data",
-        fundamentals: "SEC Company Facts",
+        fundamentals: secOutcome.value?.snapshotAsOf
+          ? `SEC Company Facts snapshot (${secOutcome.value.snapshotAsOf})`
+          : "SEC Company Facts",
         riskFactors: "Kenneth French Data Library monthly factors",
       },
       methodology: {

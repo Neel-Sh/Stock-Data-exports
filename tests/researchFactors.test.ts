@@ -13,6 +13,7 @@ import {
   findSecCompanyInText,
   SEC_REQUEST_HEADERS,
 } from "../lib/secTickerMapping";
+import { getSecFundamentalsSnapshot } from "../lib/secFundamentalsSnapshot";
 
 test("SEC requests declare the application and a public contact path", () => {
   assert.match(SEC_REQUEST_HEADERS["User-Agent"], /Tape Research Dashboard/);
@@ -29,6 +30,22 @@ test("SEC ticker lookup supports the primary JSON and text fallback formats", ()
     ticker: "AAPL",
   });
   assert.equal(findSecCompanyInText("msft\t789019\n", "AAPL"), null);
+});
+
+test("Apple SEC snapshot reproduces March 2026 SIZE and BM without look-ahead", () => {
+  const snapshot = getSecFundamentalsSnapshot("AAPL");
+  assert.ok(snapshot);
+  const close = 253.7899932861328;
+  const rows = buildResearchFactorRows([
+    { date: "2026-03-31", close, adjClose: close, volume: 1_000 },
+  ], { shares: snapshot.shares, bookEquity: snapshot.bookEquity });
+  assert.equal(rows[0].shares?.value, 14_681_140_000);
+  assert.equal(rows[0].shares?.filed, "2026-01-30");
+  assert.equal(rows[0].bookEquity?.value, 88_190_000_000);
+  assert.equal(rows[0].bookEquity?.filed, "2026-01-30");
+  assert.ok(Math.abs(rows[0].marketCap! - 3_725_926_422_032.776) < 0.01);
+  assert.ok(Math.abs(rows[0].size! - 28.946336640739798) < 1e-12);
+  assert.ok(Math.abs(rows[0].bookToMarket! - 0.023669281142670997) < 1e-12);
 });
 
 test("Kenneth French CSV values are normalized from percentage points", () => {
