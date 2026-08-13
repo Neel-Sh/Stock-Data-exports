@@ -23,6 +23,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import IndexExplorer from "./IndexExplorer";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -77,6 +78,7 @@ type Interval = "1d" | "1wk" | "1mo";
 type Range = "1Y" | "5Y" | "10Y" | "MAX" | "CUSTOM";
 type ChartMode = "indexed" | "price";
 type DataView = "chart" | "prices" | "returns" | "events";
+type Workspace = "dataset" | "indices";
 
 type Security = { symbol: string; name: string; kind: string };
 
@@ -84,6 +86,7 @@ const SECURITIES: Security[] = [
   { symbol: "^GSPC", name: "S&P 500", kind: "Index" },
   { symbol: "SPY", name: "SPDR S&P 500 ETF", kind: "ETF" },
   { symbol: "^IXIC", name: "Nasdaq Composite", kind: "Index" },
+  { symbol: "^NDX", name: "Nasdaq-100", kind: "Index" },
   { symbol: "^DJI", name: "Dow Jones Industrial Average", kind: "Index" },
   { symbol: "^RUT", name: "Russell 2000", kind: "Index" },
   { symbol: "QQQ", name: "Invesco QQQ", kind: "ETF" },
@@ -436,6 +439,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
 
 export default function Home() {
   const initialDates = useRef(rangeDates("10Y"));
+  const [workspace, setWorkspace] = useState<Workspace>("dataset");
   const [symbols, setSymbols] = useState(["^GSPC"]);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -463,13 +467,13 @@ export default function Home() {
     return SECURITIES.filter((item) => !symbols.includes(item.symbol) && (!normalized || item.symbol.toLowerCase().includes(normalized) || item.name.toLowerCase().includes(normalized))).slice(0, 6);
   }, [query, symbols]);
 
-  const loadData = useCallback(async () => {
-    if (!symbols.length) return;
+  const requestData = useCallback(async (requestSymbols: string[], requestStart: string, requestEnd: string, requestInterval: Interval) => {
+    if (!requestSymbols.length) return;
     setLoading(true);
     setError(null);
     setExportOpen(false);
     try {
-      const params = new URLSearchParams({ symbols: symbols.join(","), start, end, interval });
+      const params = new URLSearchParams({ symbols: requestSymbols.join(","), start: requestStart, end: requestEnd, interval: requestInterval });
       const response = await fetch(`/api/history?${params}`);
       const result = (await response.json()) as MarketResponse & { error?: string };
       if (!response.ok) throw new Error(result.error || "The market data service did not respond.");
@@ -479,7 +483,11 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [symbols, start, end, interval]);
+  }, []);
+
+  const loadData = useCallback(async () => {
+    await requestData(symbols, start, end, interval);
+  }, [requestData, symbols, start, end, interval]);
 
   useEffect(() => {
     if (didInitialLoad.current) return;
@@ -571,6 +579,20 @@ export default function Home() {
     setActiveView("chart");
   }
 
+  function openConstituentInDataset(symbol: string) {
+    const dates = rangeDates("1Y");
+    setSymbols([symbol]);
+    setQuery("");
+    setRange("1Y");
+    setStart(dates.start);
+    setEnd(dates.end);
+    setInterval("1d");
+    setMode("indexed");
+    setActiveView("chart");
+    setWorkspace("dataset");
+    void requestData([symbol], dates.start, dates.end, "1d");
+  }
+
   function applyQuickSet(nextSymbols: string[]) {
     setSymbols(nextSymbols);
     setQuery("");
@@ -642,33 +664,34 @@ export default function Home() {
             <span>Tape</span>
           </div>
           <nav className="side-nav" aria-label="Application">
-            <button className="is-active" type="button"><Icon icon={Database01Icon} size={17} /> Dataset</button>
+            <button className={workspace === "dataset" ? "is-active" : ""} onClick={() => setWorkspace("dataset")} type="button"><Icon icon={Database01Icon} size={17} /> Dataset</button>
+            <button className={workspace === "indices" ? "is-active" : ""} onClick={() => setWorkspace("indices")} type="button"><Icon icon={ChartLineData01Icon} size={17} /> Indices</button>
             <button onClick={() => setMethodOpen(true)} type="button"><Icon icon={InformationCircleIcon} size={17} /> Methodology</button>
           </nav>
         </div>
         <div className="source-status">
           <span className="status-dot" />
-          <div><span>Source</span><strong>Yahoo Finance</strong></div>
+          <div><span>Source</span><strong>{workspace === "dataset" ? "Yahoo Finance" : "Public markets"}</strong></div>
         </div>
       </aside>
 
       <section className="app-content">
         <header className="app-topbar">
           <div>
-            <h1>Market data</h1>
-            <p>{symbols.join(" · ")} <span /> {start}—{end}</p>
+            <h1>{workspace === "dataset" ? "Market data" : "Index explorer"}</h1>
+            <p>{workspace === "dataset" ? <>{symbols.join(" · ")} <span /> {start}—{end}</> : <>Constituents <span /> breadth · sectors · performance</>}</p>
           </div>
           <div className="topbar-actions">
-            <button className="command-search" onClick={() => { symbolInputRef.current?.focus(); setSearchOpen(true); }} type="button">
+            {workspace === "dataset" ? <button className="command-search" onClick={() => { symbolInputRef.current?.focus(); setSearchOpen(true); }} type="button">
               <Icon icon={Search01Icon} size={15} /><span>Add security</span><kbd>⌘K</kbd>
-            </button>
+            </button> : null}
             <button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={`Switch to ${dark ? "light" : "dark"} mode`} type="button">
               <Icon icon={dark ? Sun03Icon : Moon02Icon} />
             </button>
           </div>
         </header>
 
-        <div className="dashboard-grid">
+        {workspace === "dataset" ? <div className="dashboard-grid">
           <aside className="query-panel">
             <div className="panel-heading">
               <h2>Query</h2>
@@ -912,7 +935,7 @@ export default function Home() {
               ) : null}
             </div>
           </section>
-        </div>
+        </div> : <IndexExplorer onOpenDataset={openConstituentInDataset} />}
       </section>
 
       {copied ? <div className="toast"><Icon icon={CheckmarkCircle02Icon} size={17} /> Copied. Paste into cell A1.</div> : null}
