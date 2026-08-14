@@ -25,6 +25,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import IndexExplorer from "./IndexExplorer";
 import ResearchFactors from "./ResearchFactors";
+import BatchResearch from "./BatchResearch";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -79,7 +80,7 @@ type Interval = "1d" | "1wk" | "1mo";
 type Range = "1Y" | "5Y" | "10Y" | "MAX" | "CUSTOM";
 type ChartMode = "indexed" | "price";
 type DataView = "chart" | "prices" | "returns" | "events";
-type Workspace = "dataset" | "factors" | "indices";
+type Workspace = "dataset" | "factors" | "batch" | "indices";
 
 type Security = { symbol: string; name: string; kind: string };
 
@@ -672,21 +673,22 @@ export default function Home() {
           <nav className="side-nav" aria-label="Application">
             <button className={workspace === "dataset" ? "is-active" : ""} onClick={() => chooseWorkspace("dataset")} type="button"><Icon icon={Database01Icon} size={17} /> Dataset</button>
             <button className={workspace === "factors" ? "is-active" : ""} onClick={() => chooseWorkspace("factors")} type="button"><Icon icon={Activity01Icon} size={17} /> Factors</button>
+            <button className={workspace === "batch" ? "is-active" : ""} onClick={() => chooseWorkspace("batch")} type="button"><Icon icon={LayoutTable02Icon} size={17} /> 1500 engine</button>
             <button className={workspace === "indices" ? "is-active" : ""} onClick={() => chooseWorkspace("indices")} type="button"><Icon icon={ChartLineData01Icon} size={17} /> Indices</button>
             <button onClick={() => setMethodOpen(true)} type="button"><Icon icon={InformationCircleIcon} size={17} /> Methodology</button>
           </nav>
         </div>
         <div className="source-status">
           <span className="status-dot" />
-          <div><span>Source</span><strong>{workspace === "dataset" ? "Yahoo Finance" : workspace === "factors" ? "3-source model" : "Public markets"}</strong></div>
+          <div><span>Source</span><strong>{workspace === "dataset" ? "Yahoo Finance" : workspace === "factors" ? "3-source model" : workspace === "batch" ? "Yahoo + French" : "Public markets"}</strong></div>
         </div>
       </aside>
 
       <section className="app-content">
         <header className="app-topbar">
           <div>
-            <h1>{workspace === "dataset" ? "Market data" : workspace === "factors" ? "Research factors" : "Index explorer"}</h1>
-            <p>{workspace === "dataset" ? <>{symbols.join(" · ")} <span /> {start}—{end}</> : workspace === "factors" ? <>Monthly predictors <span /> filings · benchmarks</> : <>Constituents <span /> breadth · sectors · performance</>}</p>
+            <h1>{workspace === "dataset" ? "Market data" : workspace === "factors" ? "Research factors" : workspace === "batch" ? "S&P 1500 engine" : "Index explorer"}</h1>
+            <p>{workspace === "dataset" ? <>{symbols.join(" · ")} <span /> {start}—{end}</> : workspace === "factors" ? <>Monthly predictors <span /> filings · benchmarks</> : workspace === "batch" ? <>Full cross-section <span /> panel · sorts · HAC</> : <>Constituents <span /> breadth · sectors · performance</>}</p>
           </div>
           <div className="topbar-actions">
             {workspace === "dataset" ? <button className="command-search" onClick={() => { symbolInputRef.current?.focus(); setSearchOpen(true); }} type="button">
@@ -942,7 +944,7 @@ export default function Home() {
               ) : null}
             </div>
           </section>
-        </div> : workspace === "factors" ? <ResearchFactors /> : <IndexExplorer onOpenDataset={openConstituentInDataset} />}
+        </div> : workspace === "factors" ? <ResearchFactors /> : workspace === "batch" ? <BatchResearch /> : <IndexExplorer onOpenDataset={openConstituentInDataset} />}
       </section>
 
       {copied ? <div className="toast"><Icon icon={CheckmarkCircle02Icon} size={17} /> Copied. Paste into cell A1.</div> : null}
@@ -955,10 +957,11 @@ export default function Home() {
             <h2 id="method-title">Methodology</h2>
             <div className="method-list">
               <div><h3>Source</h3><p>Yahoo Finance. Not a replacement for WRDS, CRSP, or a licensed feed.</p></div>
-              <div><h3>Adjusted close</h3><p>Use it for returns when available. Raw OHLC values remain in the export.</p></div>
-              <div><h3>Research factors</h3><p>Monthly predictors use adjusted daily returns, point-in-time reported fundamentals for stocks, and Kenneth French monthly benchmarks.</p></div>
-              <div><h3>S&amp;P 500</h3><p><code>^GSPC</code> is the index. Constituent studies need point-in-time membership to avoid survivorship bias.</p></div>
-              <div><h3>Validation</h3><p>Cross-check key values and cite the source plus retrieval date.</p></div>
+              <div><h3>Price roles</h3><p>Adjusted close is reserved for returns, MAX, REV, MOM, and forward returns. SIZE and BM use unadjusted month-end close × the most recent shares filed before formation month-end.</p></div>
+              <div><h3>ILLIQ + BETA</h3><p>ILLIQ uses the paper&apos;s monthly absolute-return / total-dollar-volume ratio. BETA uses the disclosed simplified daily OLS slope against <code>^GSPC</code> within each formation month.</p></div>
+              <div><h3>1500 engine</h3><p>The batch workspace materializes one row per company-month, preserves historical rows after exit, and represents post-exit months as missing. Current public rosters are static snapshots; unbiased historical results require licensed point-in-time membership.</p></div>
+              <div><h3>Delistings</h3><p>Yahoo does not expose a reliable delisting-return field in this workflow. Missing final returns remain missing and are disclosed rather than fabricated; dropping them can bias small-cap and high-MAX portfolios upward.</p></div>
+              <div><h3>Inference</h3><p>Decile spreads and Fama–MacBeth averages use Newey–West HAC t-statistics with a documented rule-of-thumb lag. Cross-check key values against the cited source and retrieval date.</p></div>
             </div>
             <button className="primary-button modal-action" onClick={() => setMethodOpen(false)} type="button">Done</button>
           </section>

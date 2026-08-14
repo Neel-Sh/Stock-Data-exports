@@ -50,6 +50,7 @@ type IndexResponse = {
   membershipCoverage: string;
   requestedAt: string;
   sources: { membership: string; snapshot: string };
+  membershipMethodology: { pointInTime: boolean; mode: string; limitation: string };
   error?: string;
 };
 
@@ -342,6 +343,8 @@ export default function IndexExplorer({ onOpenDataset }: { onOpenDataset: (symbo
           </div>
           <div className="constituent-total"><strong>{membershipTotal || "—"}</strong><span>index members</span><small>{data?.membershipCoverage ?? "Current table"}</small></div>
         </header>
+
+        {data?.membershipMethodology && !data.membershipMethodology.pointInTime ? <div className="warning-strip index-methodology-warning"><Icon icon={InformationCircleIcon} size={15} /><span><strong>Current snapshot only.</strong> {data.membershipMethodology.limitation}</span></div> : null}
 
         <div className={`breadth-panel ${hasTradableSymbols ? "" : "is-reference-only"}`}>
           <div className="breadth-summary">

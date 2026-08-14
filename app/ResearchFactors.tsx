@@ -148,7 +148,8 @@ const METRICS: MetricDefinition[] = [
   { key: "size", label: "Firm size", symbol: "SIZE", formula: "ln(close × reported shares)", format: naturalLog },
   { key: "reversal", label: "Short-term reversal", symbol: "REV", formula: "P(t) / P(t-1) - 1", format: percent, tone },
   { key: "momentum", label: "Intermediate momentum", symbol: "MOM", formula: "P(t-2) / P(t-13) - 1", format: percent, tone },
-  { key: "illiquidity", label: "Amihud illiquidity", symbol: "ILLIQ", formula: "mean(|Rᵢ,d| / dollar volume)", format: scientific },
+  { key: "beta", label: "Market beta", symbol: "BETA", formula: "daily OLS slope vs MKT", format: ratio },
+  { key: "illiquidity", label: "Monthly illiquidity", symbol: "ILLIQ", formula: "|monthly R| / total dollar volume", format: scientific },
   { key: "bookToMarket", label: "Book-to-market", symbol: "BM", formula: "reported equity / market cap", format: ratio },
   { key: "max5", label: "Multi-day maximum", symbol: "MAX(5)", formula: "mean(top 5 daily returns)", format: percent, tone },
 ];
@@ -159,6 +160,7 @@ const MONTHLY_COLUMNS: Array<{ key: keyof ResearchFactorRow; label: string; form
   { key: "size", label: "SIZE", format: naturalLog },
   { key: "reversal", label: "REV", format: percent },
   { key: "momentum", label: "MOM", format: percent },
+  { key: "beta", label: "BETA", format: ratio },
   { key: "illiquidity", label: "ILLIQ", format: scientific },
   { key: "bookToMarket", label: "BM", format: ratio },
   { key: "max5", label: "MAX(5)", format: percent },
@@ -215,10 +217,10 @@ export default function ResearchFactors() {
 
   function exportMonthlyCsv() {
     if (!data) return;
-    const columns = ["symbol", "month", "month_end", "trading_days", "forward_return", "max", "market_cap", "size", "rev", "mom_12_2", "illiq", "mkt_rf", "smb", "hml", "factor_mom", "rf", "book_to_market", "max_5", "shares_filed", "book_equity_filed"];
+    const columns = ["symbol", "month", "month_end", "trading_days", "forward_return", "max", "market_cap", "size", "rev", "mom_12_2", "beta", "illiq_monthly", "mkt_rf", "smb", "hml", "factor_mom", "rf", "book_to_market", "max_5", "shares_filed", "book_equity_filed"];
     const rows = data.rows.map((row) => [
       data.symbol, row.month, row.monthEndDate, row.tradingDays, row.forwardMonthlyReturn, row.maxDailyReturn, row.marketCap,
-      row.size, row.reversal, row.momentum, row.illiquidity, row.mktRf, row.smb, row.hml, row.factorMomentum, row.rf,
+      row.size, row.reversal, row.momentum, row.beta, row.illiquidity, row.mktRf, row.smb, row.hml, row.factorMomentum, row.rf,
       row.bookToMarket, row.max5, row.shares?.filed ?? null, row.bookEquity?.filed ?? null,
     ]);
     const csv = [columns, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\n");
@@ -355,7 +357,7 @@ export default function ResearchFactors() {
             </table>
           </div>}
 
-          <footer className="factor-method-note"><Icon icon={InformationCircleIcon} size={14} /><span>Returns use adjusted close. For stocks, <code>SIZE</code> and <code>BM</code> only use reported inputs available by formation month-end; index-level values are not applicable. The last month&apos;s forward return remains blank until the following month is complete.</span></footer>
+          <footer className="factor-method-note"><Icon icon={InformationCircleIcon} size={14} /><span>Returns, MAX, REV, MOM, and forward returns use adjusted close. <code>SIZE</code> and <code>BM</code> use unadjusted month-end close × point-in-time reported shares. <code>ILLIQ</code> is the paper&apos;s monthly |return| / total dollar volume measure; <code>BETA</code> is a disclosed simplified daily OLS slope versus the market benchmark. The last month&apos;s forward return remains blank until the following month is complete.</span></footer>
         </> : <div className="factor-empty" aria-live="polite">Run a query to build the monthly research panel.</div>}
       </section>
       {exported ? <div className="toast" aria-live="polite"><Icon icon={CheckmarkCircle02Icon} size={17} /> {exported}</div> : null}

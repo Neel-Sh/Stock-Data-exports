@@ -21,6 +21,8 @@ Tape is a focused market-research workspace. It builds historical datasets, comp
 - Supports stock and index factor queries; company-level SIZE and BM are explicitly not applicable to indexes
 - Explores the S&P 500, Composite 1500, Nasdaq-100, Dow 30, and STOXX Europe 600 with explicit source and coverage labels
 - Exports both the monthly research panel and its underlying daily return observations
+- Builds a bounded-concurrency S&P Composite 1500 master panel with one row per company-month, then runs MAX deciles, dependent 10×10 sorts, and Fama–MacBeth regressions with Newey–West HAC inference
+- Preserves missing and post-exit company-month rows as explicit nulls so earlier observations remain in the analysis; a supplied delisting return is used only when the ordinary forward return is unavailable
 
 ## Run locally
 
@@ -38,5 +40,7 @@ Import this repository into Vercel or run `vercel` from the project folder. No e
 ## Research caveats
 
 Yahoo Finance is convenient public data, not a contracted academic dataset and not a replacement for WRDS/CRSP. Validate important observations against another source. For constituent-level S&P 500 research, use point-in-time membership data; applying today's constituents to the past creates survivorship bias.
+
+The S&P 1500 engine currently uses the latest public S&P 500, MidCap 400, and SmallCap 600 constituent tables as a static roster. It is intentionally labeled as a current snapshot and does not claim point-in-time historical membership. Before using historical portfolio estimates as unbiased results, replace that roster with licensed month-by-month membership history. The factor UI also discloses that monthly ILLIQ is `abs(monthly return) / total monthly dollar volume`, and that BETA is a simplified daily OLS slope against `^GSPC`; these are transparent public-data approximations, not a claim of CRSP-grade reconstruction.
 
 The interface uses Hugeicons Free under its MIT license.

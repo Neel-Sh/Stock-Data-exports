@@ -37,6 +37,7 @@ export type ResearchFactorRow = {
   size: number | null;
   reversal: number | null;
   momentum: number | null;
+  beta: number | null;
   illiquidity: number | null;
   mktRf: number | null;
   smb: number | null;
@@ -53,6 +54,7 @@ type BuildResearchFactorOptions = {
   shares?: ReportedFact[];
   bookEquity?: ReportedFact[];
   riskFactors?: MonthlyRiskFactors[];
+  marketPoints?: DailyMarketPoint[];
 };
 
 function finitePositive(value: number | null) {
@@ -84,6 +86,17 @@ function selectPointInTimeFact(facts: ReportedFact[], formationMonth: string) {
     .sort((a, b) => b.end.localeCompare(a.end) || b.filed.localeCompare(a.filed))[0] ?? null;
 }
 
+function ordinaryLeastSquaresSlope(y: number[], x: number[]) {
+  if (x.length !== y.length || x.length < 3) return null;
+  const xMean = x.reduce((sum, value) => sum + value, 0) / x.length;
+  const yMean = y.reduce((sum, value) => sum + value, 0) / y.length;
+  const denominator = x.reduce((sum, value) => sum + Math.pow(value - xMean, 2), 0);
+  if (!Number.isFinite(denominator) || denominator <= Number.EPSILON) return null;
+  const numerator = x.reduce((sum, value, index) => sum + (value - xMean) * (y[index] - yMean), 0);
+  const slope = numerator / denominator;
+  return Number.isFinite(slope) ? slope : null;
+}
+
 export function calculateDailyReturns(points: DailyMarketPoint[]): DailyReturnPoint[] {
   const sorted = [...points]
     .filter((point) => monthKey(point.date))
@@ -112,6 +125,24 @@ export function buildResearchFactorRows(
 
   const months = [...grouped.keys()].sort();
   const riskByMonth = new Map((options.riskFactors ?? []).map((item) => [item.month, item]));
+  const benchmarkDaily = options.marketPoints ? calculateDailyReturns(options.marketPoints) : [];
+  const benchmarkReturns = new Map(benchmarkDaily.map((point) => [point.date, point.simpleReturn]));
+  const betaByMonth = new Map<string, number | null>();
+  if (benchmarkDaily.length) {
+    for (const month of months) {
+      const observations = grouped.get(month) ?? [];
+      const stockReturns: number[] = [];
+      const marketReturns: number[] = [];
+      for (const point of observations) {
+        const stockReturn = point.simpleReturn;
+        const marketReturn = benchmarkReturns.get(point.date) ?? null;
+        if (stockReturn == null || marketReturn == null) continue;
+        stockReturns.push(stockReturn);
+        marketReturns.push(marketReturn);
+      }
+      betaByMonth.set(month, ordinaryLeastSquaresSlope(stockReturns, marketReturns));
+    }
+  }
   const monthEnds = months.map((month) => {
     const observations = grouped.get(month) ?? [];
     const adjusted = observations.findLast((point) => finitePositive(point.adjClose)) ?? null;
@@ -125,10 +156,6 @@ export function buildResearchFactorRows(
     if (!monthEnd.adjusted) return [];
 
     const returns = observations.flatMap((point) => point.simpleReturn == null ? [] : [point.simpleReturn]);
-    const liquidObservations = observations.flatMap((point) => {
-      if (point.simpleReturn == null || !finitePositive(point.close) || !finitePositive(point.volume)) return [];
-      return [Math.abs(point.simpleReturn) / (point.close! * point.volume!)];
-    });
     const sortedReturns = [...returns].sort((a, b) => b - a);
 
     const previous = index > 0 && monthsApart(months[index - 1], month) === 1 ? monthEnds[index - 1].adjusted : null;
@@ -140,6 +167,10 @@ export function buildResearchFactorRows(
     const bookEquity = selectPointInTimeFact(options.bookEquity ?? [], month);
     const marketCap = monthEnd.raw && shares ? monthEnd.raw.close! * shares.value : null;
     const risk = riskByMonth.get(month);
+    const dollarVolume = observations.reduce((sum, point) => {
+      return finitePositive(point.close) && finitePositive(point.volume) ? sum + point.close! * point.volume! : sum;
+    }, 0);
+    const monthlyReturn = previous ? monthEnd.adjusted.adjClose! / previous.adjClose! - 1 : null;
 
     return [{
       month,
@@ -152,9 +183,8 @@ export function buildResearchFactorRows(
       size: marketCap && marketCap > 0 ? Math.log(marketCap) : null,
       reversal: previous ? monthEnd.adjusted.adjClose! / previous.adjClose! - 1 : null,
       momentum: momentumStart && momentumEnd ? momentumEnd.adjClose! / momentumStart.adjClose! - 1 : null,
-      illiquidity: liquidObservations.length
-        ? liquidObservations.reduce((sum, value) => sum + value, 0) / liquidObservations.length
-        : null,
+      beta: betaByMonth.get(month) ?? null,
+      illiquidity: monthlyReturn != null && dollarVolume > 0 ? Math.abs(monthlyReturn) / dollarVolume : null,
       mktRf: risk?.mktRf ?? null,
       smb: risk?.smb ?? null,
       hml: risk?.hml ?? null,

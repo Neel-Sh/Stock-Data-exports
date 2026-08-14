@@ -338,8 +338,14 @@ export async function GET(request: NextRequest) {
   const calculationEnd = nextMonthIsComplete ? addMonths(end, 1) : end;
 
   try {
-    const [market, secOutcome, yahooFundamentalsOutcome, frenchOutcome] = await Promise.all([
+    const [market, benchmarkOutcome, secOutcome, yahooFundamentalsOutcome, frenchOutcome] = await Promise.all([
       fetchYahooDaily(symbol, start, calculationEnd),
+      symbol === "^GSPC"
+        ? Promise.resolve({ value: null, error: null })
+        : fetchYahooDaily("^GSPC", start, calculationEnd).then((value) => ({ value, error: null })).catch((error: unknown) => ({
+          value: null,
+          error: error instanceof Error ? error.message : "Market benchmark data are unavailable.",
+        })),
       fetchSecFundamentals(symbol).then((value) => ({ value, error: null })).catch((error: unknown) => ({
         value: null,
         error: error instanceof Error ? error.message : "SEC fundamentals are unavailable.",
@@ -363,6 +369,7 @@ export async function GET(request: NextRequest) {
       shares: fundamentals?.shares ?? [],
       bookEquity: fundamentals?.bookEquity ?? [],
       riskFactors: frenchOutcome.value,
+      marketPoints: benchmarkOutcome.value?.points,
     }).filter((row) => row.month >= start && row.month <= end);
     if (!rows.length) throw new Error(`No complete monthly observations were found for ${symbol} in that window.`);
 
@@ -377,6 +384,7 @@ export async function GET(request: NextRequest) {
       fundamentalsApplicable && !fundamentals ? "SIZE and BM are unavailable because no reported fundamentals were found for this listing." : null,
       fundamentalsApplicable && fundamentals && !fundamentals.shares.length ? "SIZE is unavailable because no eligible listed-share or market-cap record was found." : null,
       fundamentalsApplicable && fundamentals && !fundamentals.bookEquity.length ? "BM is unavailable because no eligible reported-equity fact was found." : null,
+      benchmarkOutcome.error ? "BETA is unavailable because the market benchmark could not be loaded." : null,
     ].filter((value): value is string => Boolean(value));
 
     return NextResponse.json({
@@ -417,7 +425,9 @@ export async function GET(request: NextRequest) {
         returnPrice: "Adjusted close",
         marketCapPrice: "Unadjusted month-end close",
         momentumWindow: "t-12 through t-2 (11 compounded monthly returns)",
-        illiquidityScale: "Raw Amihud ratio: |daily return| / (closing price x volume)",
+        illiquidityScale: "BCW monthly ratio: absolute full-month adjusted return / total monthly dollar volume",
+        beta: "Simplified daily OLS slope of stock return on ^GSPC return within each formation month; daily risk-free adjustment is not available in the Yahoo benchmark path",
+        delisting: "Yahoo Finance does not expose a reliable delisting-return field here. A missing next month remains missing and is disclosed rather than imputed.",
         factorUnits: "Decimal returns",
       },
     }, { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=21600" } });

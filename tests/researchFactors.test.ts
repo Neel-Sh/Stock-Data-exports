@@ -142,9 +142,9 @@ test("monthly factors follow the PDF formulas without look-ahead", () => {
   assert.equal(row.maxDailyReturn, februaryReturns[0]);
   assert.ok(Math.abs(row.max5! - februaryReturns.slice(0, 5).reduce((sum, value) => sum + value, 0) / 5) < 1e-12);
 
-  const expectedIlliquidity = februaryPoints
-    .map((item) => Math.abs(item.simpleReturn!) / (item.close! * item.volume!))
-    .reduce((sum, value) => sum + value, 0) / februaryPoints.length;
+  const februaryMonthEndReturn = 235 / 225 - 1;
+  const februaryDollarVolume = februaryPoints.reduce((sum, item) => sum + item.close! * item.volume!, 0);
+  const expectedIlliquidity = Math.abs(februaryMonthEndReturn) / februaryDollarVolume;
   assert.ok(Math.abs(row.illiquidity! - expectedIlliquidity) < 1e-18);
 
   // The later shares fact was filed after the formation month and must not leak backward.

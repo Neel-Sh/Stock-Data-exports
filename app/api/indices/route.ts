@@ -292,6 +292,11 @@ export async function GET(request: NextRequest) {
       index: config,
       membershipTotal: membership.total,
       membershipCoverage: membership.coverage,
+      membershipMethodology: {
+        pointInTime: false,
+        mode: "current_snapshot",
+        limitation: "The public constituent tables expose the current roster, not a licensed month-by-month S&P 1500 history. Do not use this snapshot as a historical investable universe without point-in-time membership data.",
+      },
       indexes: Object.values(INDEXES).map((item) => ({
         id: item.id,
         name: item.name,
