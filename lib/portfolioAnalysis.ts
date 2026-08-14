@@ -815,7 +815,11 @@ function preserveUnbalancedPanel(
   // Include symbols whose last observed row predates the requested window so
   // an exited company is represented by null rows after exit rather than being
   // silently removed from the unbalanced panel.
-  const symbols = [...allSymbols].sort();
+  const configuredSymbols = optionsStaticSymbols(options);
+  const symbols = [...new Set([
+    ...allSymbols,
+    ...(configuredSymbols ? [...configuredSymbols] : []),
+  ])].sort();
 
   const panel: NormalizedRowInternal[] = [];
   for (const month of months) {

@@ -91,6 +91,20 @@ test("preserves an unbalanced panel and keeps pre-exit rows in the cross-section
   assert.ok(staticFallback.warnings.some((warning) => /static-current-list/i.test(warning)));
 });
 
+test("keeps configured companies when a batch fetch returns no observations", () => {
+  const result = runPortfolioAnalysis([
+    panelRow("AAA", "2010-01", 1, 0.01),
+  ], {
+    startMonth: "2010-01",
+    endMonth: "2010-02",
+    currentSymbols: ["AAA", "FAILED"],
+  });
+
+  assert.equal(result.panel.length, 4);
+  assert.equal(result.panel.filter((row) => row.symbol === "FAILED" && row.isSynthetic).length, 2);
+  assert.equal(result.coverage.symbols, 2);
+});
+
 test("forms ascending MAX deciles and 10x10 dependent sorts with both weighting schemes", () => {
   const symbols = Array.from({ length: 100 }, (_, index) => `S${String(index + 1).padStart(3, "0")}`);
   const rows = symbols.map((symbol, index) => panelRow(

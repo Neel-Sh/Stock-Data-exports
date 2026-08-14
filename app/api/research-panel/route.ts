@@ -24,6 +24,8 @@ type YahooChartResponse = {
   };
 };
 
+const PANEL_PREVIEW_LIMIT = 240;
+
 function monthOrdinal(month: string) {
   const [year, value] = month.split("-").map(Number);
   return year * 12 + value - 1;
@@ -181,7 +183,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({})) as { universe?: string; start?: string; end?: string; maxCompanies?: number; lag?: number };
+  const body = await request.json().catch(() => ({})) as { universe?: string; start?: string; end?: string; maxCompanies?: number; lag?: number; includePanel?: boolean };
   if (body.universe !== "sp1500") return NextResponse.json({ error: "Choose the S&P Composite 1500 universe." }, { status: 400 });
   const now = new Date();
   const currentMonth = now.toISOString().slice(0, 7);
@@ -197,7 +199,7 @@ export async function POST(request: NextRequest) {
   try {
     const [allMembers, benchmark, riskFactors] = await Promise.all([fetchSp1500Members(), fetchYahooDaily("^GSPC", start, end), fetchMonthlyRiskFactors()]);
     const members = allMembers.slice(0, requestedLimit);
-    const outcomes = await mapWithConcurrency(members, 18, async (member) => {
+    const outcomes = await mapWithConcurrency(members, 36, async (member) => {
       const market = await fetchYahooDaily(member.symbol, start, end);
       const fundamentals = await fetchYahooFundamentals(member.symbol, market.points);
       const rows = buildResearchFactorRows(market.points, { shares: fundamentals.shares, bookEquity: fundamentals.bookEquity, riskFactors, marketPoints: benchmark.points });
@@ -226,12 +228,14 @@ export async function POST(request: NextRequest) {
     const symbols = members.map((member) => member.symbol);
     const analysis = analyzeResearchPanel(successfulRows, symbols, start, end, body.lag);
     const warnings = [...analysis.warnings, failedSymbols.length ? `${failedSymbols.length} companies could not be loaded and remain as missing rows in the master panel.` : null].filter((value): value is string => Boolean(value));
+    const panelIncluded = body.includePanel === true || monthsBetween(start, end) <= 12;
+    const panel = panelIncluded ? analysis.panel : analysis.panel.slice(0, PANEL_PREVIEW_LIMIT);
     return NextResponse.json({
       universe: "S&P Composite 1500",
       requested: { start, end, companies: symbols.length, lag: body.lag ?? null },
       membership: { mode: "current_snapshot", pointInTime: false, source: "Current public S&P 500, MidCap 400, and SmallCap 600 constituent tables", limitation: "This run is a current-roster research panel. Replace membershipByMonth with licensed point-in-time history before treating portfolio results as unbiased historical estimates." },
-      masterDataset: { rowCount: analysis.panel.length, expectedRows: symbols.length * monthsBetween(start, end), columns: ["symbol", "month", "max", "beta", "size", "book_to_market", "momentum", "reversal", "illiq_monthly", "forward_return", "market_cap", "membership_status", "observed", "missing_reason"] },
-      panel: analysis.panel,
+      masterDataset: { rowCount: analysis.panel.length, expectedRows: symbols.length * monthsBetween(start, end), previewRows: panel.length, panelIncluded, columns: ["symbol", "month", "max", "beta", "size", "book_to_market", "momentum", "reversal", "illiq_monthly", "forward_return", "market_cap", "membership_status", "observed", "missing_reason"] },
+      panel,
       analysis: { ...analysis, panel: undefined },
       coverage: analysis.coverage,
       warnings,
