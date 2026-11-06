@@ -26,8 +26,10 @@ Tape is a focused market-research workspace. It builds historical datasets, comp
 
 ## Run locally
 
+Requires Node.js **20.9 or later** and npm, as declared in `package.json`.
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -44,3 +46,15 @@ Yahoo Finance is convenient public data, not a contracted academic dataset and n
 The S&P 1500 engine currently uses the latest public S&P 500, MidCap 400, and SmallCap 600 constituent tables as a static roster. It is intentionally labeled as a current snapshot and does not claim point-in-time historical membership. Before using historical portfolio estimates as unbiased results, replace that roster with licensed month-by-month membership history. The factor UI also discloses that monthly ILLIQ is `abs(monthly return) / total monthly dollar volume`, and that BETA is a simplified daily OLS slope against `^GSPC`; these are transparent public-data approximations, not a claim of CRSP-grade reconstruction.
 
 The interface uses Hugeicons Free under its MIT license.
+
+## Development and source map
+
+```sh
+npm run test:unit
+npm run lint
+npm run build
+```
+
+`npm test` combines the unit suite and production build. `app/` holds the Next.js UI/routes, `lib/` the data and research logic, `tests/` the regression suite, and `data/` the checked-in research inputs. The `build/` directory contains source for the alternate Sites build; it is not disposable output.
+
+See [Contributing](CONTRIBUTING.md). Data-source terms and third-party asset licenses remain separate from repository code; no repository-wide license file is included.

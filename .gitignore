@@ -38,3 +38,20 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Local machine files and credentials
+Thumbs.db
+*.swp
+*.swo
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+# Node dependencies and output
+node_modules/
+coverage/
